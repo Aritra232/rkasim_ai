@@ -19,7 +19,7 @@ services:
     image: nginx:alpine
     container_name: nginx_proxy6
     ports:
-      - '0.0.0.0:3012:80'
+      - '0.0.0.0:3014:80'
     networks:
       - app-network
     volumes:
