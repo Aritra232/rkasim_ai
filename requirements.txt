@@ -1,0 +1,48 @@
+langchain==0.1.17
+langchain-core==0.1.52
+langchain-openai==0.1.6
+langchain-community
+fastapi
+faiss-cpu
+# sentence-transformers
+pypdf  # For PDF loading
+
+
+
+
+#Nid image verification------> nid or not
+# opencv-python 
+numpy
+uvicorn[standard]
+python-multipart
+pydantic
+
+
+
+#only nid ------> nid and image verification
+
+
+requests
+python-dotenv
+# streamlit
+Pillow
+
+
+#face verification
+httpx
+typing_extensions
+aiofiles
+aiohttp
+motor
+pymongo
+openai
+
+
+
+
+
+#resume 
+
+PyMuPDF
+python-docx
+typing-extensions
