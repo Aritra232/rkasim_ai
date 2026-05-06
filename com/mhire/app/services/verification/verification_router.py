@@ -47,14 +47,28 @@ async def verify_identity(
     if not 50 <= confidence_threshold <= 95:
         return JSONResponse(
             status_code=400,
-            content={"message": "Confidence threshold must be between 50 and 95"}
+            content={
+                "success": False,
+                "match": False,
+                "message": "Confidence threshold must be between 50 and 95",
+                "nid_exists": False,
+                "face_match": False,
+                "data": {}
+            }
         )
     
     # Check if API keys are configured
     if not verification_service.api_key or not verification_service.api_secret:
         return JSONResponse(
             status_code=500,
-            content={"message": "Face++ API credentials not configured"}
+            content={
+                "success": False,
+                "match": False,
+                "message": "Face++ API credentials not configured",
+                "nid_exists": False,
+                "face_match": False,
+                "data": {}
+            }
         )
     
     # Validate file types
@@ -63,13 +77,27 @@ async def verify_identity(
     if face_photo.content_type not in allowed_types:
         return JSONResponse(
             status_code=400,
-            content={"message": f"Face photo must be JPEG or PNG. Got: {face_photo.content_type}"}
+            content={
+                "success": False,
+                "match": False,
+                "message": f"Face photo must be JPEG or PNG. Got: {face_photo.content_type}",
+                "nid_exists": False,
+                "face_match": False,
+                "data": {}
+            }
         )
     
     if nid_card.content_type not in allowed_types:
         return JSONResponse(
             status_code=400,
-            content={"message": f"NID card must be JPEG or PNG. Got: {nid_card.content_type}"}
+            content={
+                "success": False,
+                "match": False,
+                "message": f"NID card must be JPEG or PNG. Got: {nid_card.content_type}",
+                "nid_exists": False,
+                "face_match": False,
+                "data": {}
+            }
         )
     
     try:
@@ -82,13 +110,27 @@ async def verify_identity(
         if len(face_data) > max_size:
             return JSONResponse(
                 status_code=400,
-                content={"message": "Face photo file size too large (max 10MB)"}
+                content={
+                    "success": False,
+                    "match": False,
+                    "message": "Face photo file size too large (max 10MB)",
+                    "nid_exists": False,
+                    "face_match": False,
+                    "data": {}
+                }
             )
         
         if len(nid_data) > max_size:
             return JSONResponse(
                 status_code=400,
-                content={"message": "NID card file size too large (max 10MB)"}
+                content={
+                    "success": False,
+                    "match": False,
+                    "message": "NID card file size too large (max 10MB)",
+                    "nid_exists": False,
+                    "face_match": False,
+                    "data": {}
+                }
             )
         
         # Process images
@@ -98,7 +140,14 @@ async def verify_identity(
         if processed_face_data is None:
             return JSONResponse(
                 status_code=400,
-                content={"message": "Failed to process face photo"}
+                content={
+                    "success": False,
+                    "match": False,
+                    "message": "Failed to process face photo",
+                    "nid_exists": False,
+                    "face_match": False,
+                    "data": {}
+                }
             )
         
         logger.info("Processing NID card...")
@@ -107,7 +156,14 @@ async def verify_identity(
         if processed_nid_data is None:
             return JSONResponse(
                 status_code=400,
-                content={"message": "Failed to process NID card"}
+                content={
+                    "success": False,
+                    "match": False,
+                    "message": "Failed to process NID card",
+                    "nid_exists": False,
+                    "face_match": False,
+                    "data": {}
+                }
             )
         
         # Extract NID information using OpenAI Vision API
@@ -142,12 +198,19 @@ async def verify_identity(
         # If NID exists, return existing user result without requiring face match
         if nid_exists:
             response_data = {
-                'nid_extraction': nid_extraction_result,
-                'nid_exists': nid_exists,
-                'existing_user': existing_user,
-                'message': "NID already exists in the system. Face match is not required for existing records."
+                "success": True,
+                "match": True,
+                "message": "NID already exists in the system. Face match is not required for existing records.",
+                "nid_exists": True,
+                "face_match": True,
+                "data": {
+                    "user_id": str(existing_user.get('_id', '')),
+                    "nid_number": existing_user.get('id_number', ''),
+                    "name": existing_user.get('name', ''),
+                    "match_score": 100.0
+                }
             }
-            return response_data
+            return JSONResponse(status_code=400, content=response_data)
 
         # Perform face verification for new NID registrations
         logger.info("Comparing faces...")
@@ -157,29 +220,29 @@ async def verify_identity(
             confidence_threshold
         )
 
-        # Prepare response data for new NID verification
-        response_data = {
-            'verification': verification_result,
-            'nid_extraction': nid_extraction_result,
-            'nid_exists': nid_exists,
-            'face_match': verification_result.get('match', False)
-        }
-
         # Handle error cases with clean error messages
         if not verification_result.get('success', False):
             error_message = verification_result.get('error', 'Verification failed')
 
             if "No face detected in the face photo and No face detected in the NID card" in error_message:
-                response_data['message'] = "No face found in both the photo and NID card"
+                error_message = "No face found in both the photo and NID card"
             elif "No face detected in the face photo" in error_message:
-                response_data['message'] = "No face found in the photo"
+                error_message = "No face found in the photo"
             elif "No face detected in the NID card" in error_message:
-                response_data['message'] = "No face found in the NID card"
+                error_message = "No face found in the NID card"
             elif "Multiple faces detected in face photo" in error_message:
-                response_data['message'] = "Multiple faces detected in face photo. Please use image with single face"
+                error_message = "Multiple faces detected in face photo. Please use image with single face"
             else:
-                response_data['message'] = error_message
+                error_message = error_message
 
+            response_data = {
+                "success": False,
+                "match": False,
+                "message": error_message,
+                "nid_exists": False,
+                "face_match": False,
+                "data": {}
+            }
             return JSONResponse(
                 status_code=400,
                 content=response_data
@@ -187,7 +250,14 @@ async def verify_identity(
 
         # If the face did not match for a new NID, reject the verification
         if not verification_result.get('match', False):
-            response_data['message'] = "Face did not match the NID card"
+            response_data = {
+                "success": False,
+                "match": False,
+                "message": "Face did not match the NID card",
+                "nid_exists": False,
+                "face_match": False,
+                "data": {}
+            }
             return JSONResponse(
                 status_code=400,
                 content=response_data
@@ -200,10 +270,10 @@ async def verify_identity(
             not nid_exists
         )
 
+        saved_user_id = None
         if can_save_nid:
             logger.info("Saving new NID information to database...")
             saved_user_id = await db_manager.save_nid_information(nid_extraction_result)
-            response_data['saved_user_id'] = saved_user_id
             logger.info(f"NID information saved successfully with ID: {saved_user_id}")
         else:
             logger.info(
@@ -211,14 +281,33 @@ async def verify_identity(
                 f"id_number={nid_extraction_result.get('id_number')}, nid_exists={nid_exists}"
             )
 
-        response_data['message'] = "Face matched with NID and new NID verification passed"
+        response_data = {
+            "success": True,
+            "match": True,
+            "message": "Face matched with NID and new NID verification passed",
+            "nid_exists": False,
+            "face_match": True,
+            "data": {
+                "user_id": saved_user_id or "",
+                "nid_number": nid_extraction_result.get('id_number', ''),
+                "name": nid_extraction_result.get('name', ''),
+                "match_score": verification_result.get('confidence', 0)
+            }
+        }
         return response_data
         
     except Exception as e:
         logger.error(f"Unexpected error during verification: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"message": f"An unexpected error occurred: {str(e)}"}
+            content={
+                "success": False,
+                "match": False,
+                "message": f"An unexpected error occurred: {str(e)}",
+                "nid_exists": False,
+                "face_match": False,
+                "data": {}
+            }
         )
 
 
