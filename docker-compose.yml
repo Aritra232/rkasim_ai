@@ -9,7 +9,7 @@ services:
       dockerfile: Dockerfile
     container_name: rkasim_app6
     expose:
-      - '8000'
+      - '8071'
     env_file:
       - .env
     networks:
