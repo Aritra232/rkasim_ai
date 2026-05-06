@@ -119,50 +119,81 @@ async def verify_identity(
             logger.warning(f"NID extraction failed: {nid_extraction_result.get('error', 'Unknown error')}")
             # Continue with verification even if extraction fails
         
+        # Initialize DB manager for possible NID lookups and saves
+        from com.mhire.app.database.db_manager import DBManager
+        db_manager = DBManager()
+
         # Check if NID already exists in database
         nid_exists = False
         existing_user = None
         if nid_extraction_result.get('id_number'):
-            from com.mhire.app.database.db_manager import DBManager
-            db_manager = DBManager()
             nid_exists = await db_manager.check_nid_info_exists(nid_extraction_result['id_number'])
             if nid_exists:
                 existing_user = await db_manager.get_nid_info_by_id_number(nid_extraction_result['id_number'])
                 logger.info(f"NID already exists in database: {nid_extraction_result['id_number']}")
-                
+
                 # Convert ObjectId and datetime to string for JSON serialization
                 if existing_user:
                     if '_id' in existing_user:
                         existing_user['_id'] = str(existing_user['_id'])
                     if 'created_at' in existing_user:
                         existing_user['created_at'] = str(existing_user['created_at'])
-                
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "message": "Nid exist done",
-                        "nid_exists": True,
-                        "existing_user": existing_user
-                    }
-                )
-        
-        # Perform face verification
+
+        # If NID exists, return existing user result without requiring face match
+        if nid_exists:
+            response_data = {
+                'nid_extraction': nid_extraction_result,
+                'nid_exists': nid_exists,
+                'existing_user': existing_user,
+                'message': "NID already exists in the system. Face match is not required for existing records."
+            }
+            return response_data
+
+        # Perform face verification for new NID registrations
         logger.info("Comparing faces...")
         verification_result = verification_service.compare_face_with_nid(
             processed_face_data,
             processed_nid_data,
             confidence_threshold
         )
-        
-        # Prepare response data
+
+        # Prepare response data for new NID verification
         response_data = {
             'verification': verification_result,
             'nid_extraction': nid_extraction_result,
             'nid_exists': nid_exists,
-            'existing_user': existing_user
+            'face_match': verification_result.get('match', False)
         }
-        
-        # Save NID information if extraction was successful and NID doesn't exist
+
+        # Handle error cases with clean error messages
+        if not verification_result.get('success', False):
+            error_message = verification_result.get('error', 'Verification failed')
+
+            if "No face detected in the face photo and No face detected in the NID card" in error_message:
+                response_data['message'] = "No face found in both the photo and NID card"
+            elif "No face detected in the face photo" in error_message:
+                response_data['message'] = "No face found in the photo"
+            elif "No face detected in the NID card" in error_message:
+                response_data['message'] = "No face found in the NID card"
+            elif "Multiple faces detected in face photo" in error_message:
+                response_data['message'] = "Multiple faces detected in face photo. Please use image with single face"
+            else:
+                response_data['message'] = error_message
+
+            return JSONResponse(
+                status_code=400,
+                content=response_data
+            )
+
+        # If the face did not match for a new NID, reject the verification
+        if not verification_result.get('match', False):
+            response_data['message'] = "Face did not match the NID card"
+            return JSONResponse(
+                status_code=400,
+                content=response_data
+            )
+
+        # Save NID information if extraction succeeded for a new NID
         can_save_nid = (
             nid_extraction_result.get('success', False) and 
             nid_extraction_result.get('id_number') and 
@@ -179,29 +210,8 @@ async def verify_identity(
                 f"Skipping NID save: success={nid_extraction_result.get('success', False)}, "
                 f"id_number={nid_extraction_result.get('id_number')}, nid_exists={nid_exists}"
             )
-        
-        # Handle error cases with clean error messages
-        if not verification_result.get('success', False):
-            error_message = verification_result.get('error', 'Verification failed')
-            
-            # Customize error messages for specific cases
-            if "No face detected in the face photo and No face detected in the NID card" in error_message:
-                response_data['message'] = "No face found in both the photo and NID card"
-            elif "No face detected in the face photo" in error_message:
-                response_data['message'] = "No face found in the photo"
-            elif "No face detected in the NID card" in error_message:
-                response_data['message'] = "No face found in the NID card"
-            elif "Multiple faces detected in face photo" in error_message:
-                response_data['message'] = "Multiple faces detected in face photo. Please use image with single face"
-            else:
-                response_data['message'] = error_message
-            
-            return JSONResponse(
-                status_code=400,
-                content=response_data
-            )
-        
-        # Return successful result
+
+        response_data['message'] = "Face matched with NID and new NID verification passed"
         return response_data
         
     except Exception as e:
